@@ -1,0 +1,5 @@
+cron:
+- description: Start Bay Area 4k Forcast
+  url: /BayArea4kStart
+  timezone: America/Los_Angeles
+  schedule: every day 08:00

@@ -1,0 +1,43 @@
+<html>
+    <head>
+        <title>{{title}}</title>
+    </head>
+    <style type="text/css">
+        table {
+            border-spacing: 0px;
+        }
+        td {
+            border-bottom: solid black 1px;
+            padding: 10px;
+            empty-cells: show;
+        }
+        thead td {
+            font-weight: bold;
+        }
+        h3 {
+            color: green;
+        }
+        td.valid {
+            background-color: #baffbf;
+        }
+        td.invalid {
+            background-color: #ffd3d3;
+        }
+    </style>
+    <body>
+        <h2>{{title}}</h2>
+        <h3>Current UTC Time: {{date}}</h3>
+        <table>
+            <thead>
+                <td>Instance name</td>
+                <td>Instance status</td>
+            </thead>
+        {% for i in status_items %}
+        <tr>
+                <td>{{i.instance_name}}</td>
+                <td>{{i.instance_status}}</td>
+        </tr>
+        {% endfor %}
+        </table>
+    </body>
+</html>
