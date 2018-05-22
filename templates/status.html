@@ -31,11 +31,19 @@
             <thead>
                 <td>Instance name</td>
                 <td>Instance status</td>
+                <td>Last Start</td>
+                <td>Last Completion</td>
+                <td>Last Complete Run Time</td>
+                <td>Last Start Preempted</td>
             </thead>
         {% for i in status_items %}
         <tr>
                 <td>{{i.instance_name}}</td>
                 <td>{{i.instance_status}}</td>
+                <td>{{i.instance_started}}</td>
+                <td>{{i.instance_completed}}</td>
+                <td>{{i.instance_elapsed}}</td>
+                <td>{{i.instance_was_preempted}}</td>
         </tr>
         {% endfor %}
         </table>
