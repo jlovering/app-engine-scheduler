@@ -120,6 +120,9 @@ def get_last_run_preempted(group, instance):
     else:
         return False
 
+def get_preemption_count(group, instance):
+    return len(instances[group][instance]['lastPreempt'])
+
 def start_instance(zone, instance):
     """starts instance"""
     request = compute.instances().start(
@@ -174,7 +177,8 @@ class StatusPage(webapp2.RequestHandler):
                         'instance_started': str(get_last_started_time(group, instance)),
                         'instance_completed': str(get_last_completed_time(group, instance)),
                         'instance_elapsed': str(get_last_run_elapsed(group, instance)),
-                        'instance_was_preempted': str(get_last_run_preempted(group, instance))
+                        'instance_was_preempted': str(get_last_run_preempted(group, instance)),
+                        'instance_preempted_count': str(get_preemption_count(group, instance))
                         })
 
         data = {}
