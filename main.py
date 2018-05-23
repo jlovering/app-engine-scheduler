@@ -18,15 +18,18 @@ instances = {
     'bayarea_4k_p_instances' : {
         'rasp-blipmap-bayarea-4k-p-0' : {
             'name':'rasp-blipmap-bayarea-4k-p-0',
-            'zone':'us-west1-a'
+            'zone':'us-west1-a',
+            'max_expected_run' : 700,
         },
         'rasp-blipmap-bayarea-4k-p-1' : {
             'name':'rasp-blipmap-bayarea-4k-p-1',
-            'zone':'us-west1-a'
+            'zone':'us-west1-a',
+            'max_expected_run' : 700,
         },
         'rasp-blipmap-bayarea-4k-p-2' : {
             'name':'rasp-blipmap-bayarea-4k-p-2',
-            'zone':'us-west1-a'
+            'zone':'us-west1-a',
+            'max_expected_run' : 700,
         }
     }
 }
@@ -97,6 +100,27 @@ def get_last_started_time(group, instance):
 def get_last_preempt_time(group, instance):
     return _get_last_time(group, instance, 'lastPreempt')
 
+def get_current_run_elapsed(group, instance):
+    start = get_last_started_time(group, instance)
+    stop = get_last_completed_time(group, instance)
+
+    if not start:
+        return 0
+
+    print start, stop, start < stop
+    # If there were starts and stops, check the run is active
+    if start and stop and start < stop:
+        return 0
+
+    print datetime.datetime.utcnow(), start
+    delta = datetime.datetime.utcnow() - start
+    print delta
+
+    if delta.total_seconds() < 0:
+        return 0
+    else:
+        return delta.total_seconds()
+
 def get_last_run_elapsed(group, instance):
     start = get_last_started_time(group, instance)
     stop = get_last_completed_time(group, instance)
@@ -104,10 +128,10 @@ def get_last_run_elapsed(group, instance):
     if start and stop:
         delta = stop - start
     else:
-        return None
+        return 0
 
     if delta.total_seconds() < 0:
-        return None
+        return 0
     else:
         return delta.total_seconds()
 
@@ -126,6 +150,24 @@ def get_preemption_count(group, instance):
 def start_instance(zone, instance):
     """starts instance"""
     request = compute.instances().start(
+        project=projectID,
+        zone=zone,
+        instance=instance)
+    response = request.execute()
+    return response
+
+def restart_instance(zone, instance):
+    """restarts instance"""
+    request = compute.instances().reset(
+        project=projectID,
+        zone=zone,
+        instance=instance)
+    response = request.execute()
+    return response
+
+def stop_instance(zone, instance):
+    """stop instance"""
+    request = compute.instances().stop(
         project=projectID,
         zone=zone,
         instance=instance)
@@ -154,13 +196,27 @@ def MonitorGroup(group):
         if get_last_run_preempted(group, instances[group][i]['name']):
             start_instance(instances[group][i]['zone'], instances[group][i]['name'])
             response += get_time_string() + "Instance: " + instances[group][i]['name'] + " was preempted, restarting" + "\r\n"
+        if get_current_run_elapsed(group, instances[group][i]['name']) > instances[group][instance]['max_expected_run']:
+            restart_instance(instances[group][i]['zone'], instances[group][i]['name'])
+            response += get_time_string() + "Instance: " + instances[group][i]['name'] + " exceeded max run, restarting" + "\r\n"
     if len(response) == 0:
         return get_time_string() + "All instances running normally"
+    return response
+
+def InstanceGroupStopper(group):
+    response = ""
+    for instance in instances[group]:
+        stop_instance(instances[group][instance]['zone'], instances[group][instance]['name'])
+        response += get_time_string() + "Stopping instance: " + instances[group][instance]['name'] + "\r\n"
     return response
 
 class BayArea4kStartTrigger(webapp2.RequestHandler):
     def get(self):
         self.response.write(InstanceGroupStarter('bayarea_4k_p_instances'))
+
+class BayArea4kStopTrigger(webapp2.RequestHandler):
+    def get(self):
+        self.response.write(InstanceGroupStopper('bayarea_4k_p_instances'))
 
 class BayArea4kMonitorTrigger(webapp2.RequestHandler):
     def get(self):
@@ -170,13 +226,14 @@ class StatusPage(webapp2.RequestHandler):
     def get(self):
         status_items = [];
         for group in instances:
-            for instance in instances[group]:
+            for instance in sorted(instances[group], key=lambda k: instances[group][k]['name']):
                     status_items.append({
                         'instance_name': instance,
                         'instance_status': get_status(instances[group][instance]['zone'], instances[group][instance]['name']),
                         'instance_started': str(get_last_started_time(group, instance)),
                         'instance_completed': str(get_last_completed_time(group, instance)),
-                        'instance_elapsed': str(get_last_run_elapsed(group, instance)),
+                        'instance_comp_elapsed': str(get_last_run_elapsed(group, instance)),
+                        'instance_curr_elapsed': str(get_current_run_elapsed(group, instance)),
                         'instance_was_preempted': str(get_last_run_preempted(group, instance)),
                         'instance_preempted_count': str(get_preemption_count(group, instance))
                         })
@@ -195,6 +252,7 @@ for g in instances:
 
 app = webapp2.WSGIApplication([
     ('/BayArea4kStart', BayArea4kStartTrigger),
+    ('/BayArea4kStop', BayArea4kStopTrigger),
     ('/BayArea4kMonitor', BayArea4kMonitorTrigger),
     ('/Status', StatusPage),
 ], debug=True)

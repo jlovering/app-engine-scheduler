@@ -34,8 +34,9 @@
                 <td>Last Start</td>
                 <td>Last Completion</td>
                 <td>Last Complete Run Time</td>
-                <td>Last Run Preempted</td>
                 <td>Last Day # Preemptions</td>
+                <td>Current Run Elapsed Time</td>
+                <td>Current Run Preempted</td>
             </thead>
         {% for i in status_items %}
         <tr>
@@ -43,9 +44,15 @@
                 <td>{{i.instance_status}}</td>
                 <td>{{i.instance_started}}</td>
                 <td>{{i.instance_completed}}</td>
-                <td>{{i.instance_elapsed}}</td>
-                <td>{{i.instance_was_preempted}}</td>
+                <td>{{i.instance_comp_elapsed}}</td>
                 <td>{{i.instance_preempted_count}}</td>
+                {% if i.instance_status == 'RUNNING' %}
+                <td>{{i.instance_curr_elapsed}}</td>
+                <td>{{i.instance_was_preempted}}</td>
+                {% else %}
+                <td></td>
+                <td></td>
+                {% endif %}
         </tr>
         {% endfor %}
         </table>
