@@ -7,4 +7,9 @@ cron:
 - description: Monitor Bay Area 4k Forcast
   url: /BayArea4kMonitor
   timezone: UTC
-  schedule: every 5 minutes from 15:00 to 15:30
+  schedule: every 5 minutes from 15:00 to 16:00
+
+- description: Stop any stragglers for Bay Area 4k Forcast
+  url: /BayArea4kStop
+  timezone: UTC
+  schedule: every day 16:15

@@ -107,7 +107,6 @@ def get_current_run_elapsed(group, instance):
     if not start:
         return 0
 
-    print start, stop, start < stop
     # If there were starts and stops, check the run is active
     if start and stop and start < stop:
         return 0
@@ -196,9 +195,11 @@ def MonitorGroup(group):
         if get_last_run_preempted(group, instances[group][i]['name']):
             start_instance(instances[group][i]['zone'], instances[group][i]['name'])
             response += get_time_string() + "Instance: " + instances[group][i]['name'] + " was preempted, restarting" + "\r\n"
-        if get_current_run_elapsed(group, instances[group][i]['name']) > instances[group][instance]['max_expected_run']:
+            continue
+        if get_current_run_elapsed(group, instances[group][i]['name']) > instances[group][i]['max_expected_run']:
             restart_instance(instances[group][i]['zone'], instances[group][i]['name'])
             response += get_time_string() + "Instance: " + instances[group][i]['name'] + " exceeded max run, restarting" + "\r\n"
+            continue
     if len(response) == 0:
         return get_time_string() + "All instances running normally"
     return response

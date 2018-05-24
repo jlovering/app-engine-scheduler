@@ -20,6 +20,10 @@ handlers:
   script: main.app
   login: admin
 
+- url: /BayArea4kStop
+  script: main.app
+  login: admin
+
 - url: /Status
   script: main.app
 
