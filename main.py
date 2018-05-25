@@ -88,7 +88,7 @@ def _cache_zone_ops():
             instances[g][i]['lastStart'] = []
             instances[g][i]['lastComplete'] = []
             instances[g][i]['lastPreempt'] = []
-            instances[g][i]['ops'] = filter(lambda t: t['targetId'] == instances[g][i]['id'], ops_today_r_sorted)
+            instances[g][i]['ops'] = filter(lambda t: t['targetId'] == instances[g][i]['id'] and not t.has_key('error'), ops_today_r_sorted)
             for o in instances[g][i]['ops']:
                 if o['operationType'] == 'start' or o['operationType'] == 'reset':
                     instances[g][i]['lastStart'].append(convert_gcloud_time(o['endTime']))
