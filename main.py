@@ -31,7 +31,24 @@ instances = {
             'zone':'us-west1-a',
             'max_expected_run' : 700,
         }
-    }
+    },
+    'sask_4k_p_instances' : {
+        'rasp-blipmap-sask-4k-p-0' : {
+            'name':'rasp-blipmap-sask-4k-p-0',
+            'zone':'us-central1-c',
+            'max_expected_run' : 1600,
+        },
+        'rasp-blipmap-sask-4k-p-1' : {
+            'name':'rasp-blipmap-sask-4k-p-1',
+            'zone':'us-central1-c',
+            'max_expected_run' : 1600,
+        },
+        'rasp-blipmap-sask-4k-p-2' : {
+            'name':'rasp-blipmap-sask-4k-p-2',
+            'zone':'us-central1-c',
+            'max_expected_run' : 1600,
+        },
+    },
 }
 
 
@@ -48,7 +65,7 @@ def get_time_string():
 
 def _cache_zone_ops():
     global zoneOpsCached
-    ops_of_interest = ['start', 'compute.instances.guestTerminate', 'compute.instances.preempted']
+    ops_of_interest = ['start', 'reset', 'compute.instances.guestTerminate', 'compute.instances.preempted']
     zones = []
     for g in instances:
         for i in instances[g]:
@@ -58,7 +75,7 @@ def _cache_zone_ops():
 
     ops = []
     for z in zones:
-        ops += compute.zoneOperations().list(project='wrf-blipmaps', zone='us-west1-a').execute()['items']
+        ops += compute.zoneOperations().list(project='wrf-blipmaps', zone=z).execute()['items']
 
     # filter for just the last day and ops we care about
     ops_today = filter(lambda t: convert_gcloud_time(t['endTime']) > datetime.datetime.utcnow() - datetime.timedelta(days=daysToScanBack) and t['operationType'] in ops_of_interest, ops)
@@ -73,7 +90,7 @@ def _cache_zone_ops():
             instances[g][i]['lastPreempt'] = []
             instances[g][i]['ops'] = filter(lambda t: t['targetId'] == instances[g][i]['id'], ops_today_r_sorted)
             for o in instances[g][i]['ops']:
-                if o['operationType'] == 'start':
+                if o['operationType'] == 'start' or o['operationType'] == 'reset':
                     instances[g][i]['lastStart'].append(convert_gcloud_time(o['endTime']))
                 if o['operationType'] == 'compute.instances.guestTerminate':
                     instances[g][i]['lastComplete'].append(convert_gcloud_time(o['endTime']))
@@ -223,6 +240,18 @@ class BayArea4kMonitorTrigger(webapp2.RequestHandler):
     def get(self):
         self.response.write(MonitorGroup('bayarea_4k_p_instances'))
 
+class Sask4kStartTrigger(webapp2.RequestHandler):
+    def get(self):
+        self.response.write(InstanceGroupStarter('sask_4k_p_instances'))
+
+class Sask4kStopTrigger(webapp2.RequestHandler):
+    def get(self):
+        self.response.write(InstanceGroupStopper('sask_4k_p_instances'))
+
+class Sask4kMonitorTrigger(webapp2.RequestHandler):
+    def get(self):
+        self.response.write(MonitorGroup('sask_4k_p_instances'))
+
 class StatusPage(webapp2.RequestHandler):
     def get(self):
         status_items = [];
@@ -252,9 +281,12 @@ for g in instances:
         assert instances[g][i]['name'] == i, "Missmatched key and name \"%s\" != \"%s\"" % (i, instances[g][i]['name'])
 
 app = webapp2.WSGIApplication([
-    ('/BayArea4kStart', BayArea4kStartTrigger),
-    ('/BayArea4kStop', BayArea4kStopTrigger),
-    ('/BayArea4kMonitor', BayArea4kMonitorTrigger),
+    ('/BayArea4kStart',     BayArea4kStartTrigger),
+    ('/BayArea4kStop',      BayArea4kStopTrigger),
+    ('/BayArea4kMonitor',   BayArea4kMonitorTrigger),
+    ('/Sask4kStart',        Sask4kStartTrigger),
+    ('/Sask4kStop',         Sask4kStopTrigger),
+    ('/Sask4kMonitor',      Sask4kMonitorTrigger),
     ('/Status', StatusPage),
 ], debug=True)
 

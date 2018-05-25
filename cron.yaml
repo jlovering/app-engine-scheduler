@@ -13,3 +13,18 @@ cron:
   url: /BayArea4kStop
   timezone: UTC
   schedule: every day 16:15
+
+- description: Start Sask 4k Forcast
+  url: /Sask4kStart
+  timezone: UTC
+  schedule: every day 9:00
+
+- description: Monitor Sask 4k Forcast
+  url: /Sask4kMonitor
+  timezone: UTC
+  schedule: every 5 minutes from 9:00 to 11:00
+
+- description: Stop any stragglers for Sask 4k Forcast
+  url: /Sask4kStop
+  timezone: UTC
+  schedule: every day 11:15

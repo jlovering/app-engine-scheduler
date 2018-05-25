@@ -24,6 +24,18 @@ handlers:
   script: main.app
   login: admin
 
+- url: /Sask4kStart
+  script: main.app
+  login: admin
+
+- url: /Sask4kMonitor
+  script: main.app
+  login: admin
+
+- url: /Sask4kStop
+  script: main.app
+  login: admin
+
 - url: /Status
   script: main.app
 
