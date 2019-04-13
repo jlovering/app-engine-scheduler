@@ -1,6 +1,7 @@
 import jinja2
 import webapp2
 import datetime
+import os
 
 from googleapiclient import discovery
 from oauth2client.client import GoogleCredentials
@@ -14,43 +15,55 @@ compute = discovery.build('compute','v1',
 projectID = 'wrf-blipmaps'
 zoneOpsCached = False
 daysToScanBack = 1
-instances = {
-    'bayarea_4k_p_instances' : {
-        'rasp-blipmap-bayarea-4k-p-0' : {
-            'name':'rasp-blipmap-bayarea-4k-p-0',
-            'zone':'us-west1-a',
-            'max_expected_run' : 700,
-        },
-        'rasp-blipmap-bayarea-4k-p-1' : {
-            'name':'rasp-blipmap-bayarea-4k-p-1',
-            'zone':'us-west1-a',
-            'max_expected_run' : 700,
-        },
-        'rasp-blipmap-bayarea-4k-p-2' : {
-            'name':'rasp-blipmap-bayarea-4k-p-2',
-            'zone':'us-west1-a',
-            'max_expected_run' : 700,
-        }
+maxRunningInstancesPerZone = 3
+
+simulations = {
+    'bayarea_4k' : {
+        'TZ' : 'America/Los_Angeles',
+        'bucket_uri' : 'gs://bucket-blipmap-bayarea-4k',
+        'docker_image' : 'gcr.io/wrf-blipmaps/rasp-blipmap-bayarea-4k:latest',
+        'site_name' : 'BAYAREA',
+        'starthh' : 12,
+        'max_expected_run' : 700,
     },
-    'sask_4k_p_instances' : {
-        'rasp-blipmap-sask-4k-p-0' : {
-            'name':'rasp-blipmap-sask-4k-p-0',
-            'zone':'us-central1-c',
-            'max_expected_run' : 1600,
-        },
-        'rasp-blipmap-sask-4k-p-1' : {
-            'name':'rasp-blipmap-sask-4k-p-1',
-            'zone':'us-central1-c',
-            'max_expected_run' : 1600,
-        },
-        'rasp-blipmap-sask-4k-p-2' : {
-            'name':'rasp-blipmap-sask-4k-p-2',
-            'zone':'us-central1-c',
-            'max_expected_run' : 1600,
-        },
+    'sask_4k' : {
+        'TZ' : 'America/Regina',
+        'bucket_uri' : 'gs://bucket-blipmap-sask-4k',
+        'docker_image' : 'gcr.io/wrf-blipmaps/rasp-blipmap-sask-4k:latest',
+        'site_name' : 'SASK',
+        'starthh' : 9,
+        'max_expected_run' : 1600,
     },
 }
 
+startup_script = open(
+        os.path.join(
+            os.path.dirname(__file__), 'rasp-blipmap-startup.sh'), 'r').read()
+
+deploy_zones = [
+    'us-west1-a',
+    'us-central1-c'
+    ]
+
+current_instances = []
+
+for zone in deploy_zones:
+    request = compute.instances().list(project=projectID, zone=zone)
+    while request is not None:
+        response = request.execute()
+        for i in response['items']:
+            inst = {
+            'name' : i['name'],
+            'zone' : i['zone'],
+            'id' : i['id']
+            }
+            for m in i['metadata']['items']:
+                if m['key'] = 'max_expected_run' :
+                    inst['max_expected_run'] = m['value']
+            current_instances.append(inst)
+        request = compute.instances().list_next(previous_request=request, previous_response=response)
+
+recent_instances = []
 
 def convert_gcloud_time(gcloudtime):
     # Because why used a fucking standard format?
@@ -65,17 +78,10 @@ def get_time_string():
 
 def _cache_zone_ops():
     global zoneOpsCached
-    ops_of_interest = ['start', 'reset', 'compute.instances.guestTerminate', 'compute.instances.preempted']
-    zones = []
-    for g in instances:
-        for i in instances[g]:
-            instances[g][i]['id'] = compute.instances().get(project=projectID, zone=instances[g][i]['zone'], instance=instances[g][i]['name']).execute()['id']
-            if instances[g][i]['zone'] not in zones:
-                zones.append(instances[g][i]['zone'])
-
+    ops_of_interest = ['start', 'reset', 'compute.instances.guestTerminate', 'compute.instances.preempted', 'insert', 'delete']
     ops = []
-    for z in zones:
-        ops += compute.zoneOperations().list(project='wrf-blipmaps', zone=z).execute()['items']
+    for z in deploy_zones:
+        ops += compute.zoneOperations().list(project=projectID, zone=z).execute()['items']
 
     # filter for just the last day and ops we care about
     ops_today = filter(lambda t: convert_gcloud_time(t['endTime']) > datetime.datetime.utcnow() - datetime.timedelta(days=daysToScanBack) and t['operationType'] in ops_of_interest, ops)
@@ -83,43 +89,56 @@ def _cache_zone_ops():
     # sort by completions time
     ops_today_r_sorted = sorted(ops_today, key=lambda t: convert_gcloud_time(t['endTime']), reverse=True)
 
-    for g in instances:
-        for i in instances[g]:
-            instances[g][i]['lastStart'] = []
-            instances[g][i]['lastComplete'] = []
-            instances[g][i]['lastPreempt'] = []
-            instances[g][i]['ops'] = filter(lambda t: t['targetId'] == instances[g][i]['id'] and not t.has_key('error'), ops_today_r_sorted)
-            for o in instances[g][i]['ops']:
-                if o['operationType'] == 'start' or o['operationType'] == 'reset':
-                    instances[g][i]['lastStart'].append(convert_gcloud_time(o['endTime']))
-                if o['operationType'] == 'compute.instances.guestTerminate':
-                    instances[g][i]['lastComplete'].append(convert_gcloud_time(o['endTime']))
-                if o['operationType'] == 'compute.instances.preempted':
-                    instances[g][i]['lastPreempt'].append(convert_gcloud_time(o['endTime']))
+    for o in ops_today_r_sorted:
+        name = o['targetLink'].split('/')[-1]
+        if not name in recent_instances:
+            recent_instances.append( {
+                'name' : name,
+                'zone' : o['zone'],
+                'id' : o['targetId'],
+                'lastStart' : [],
+                'lastStop' : [],
+                'lastComplete' : [],
+                'lastPreempt' : [],
+                'lastCreate' : [],
+                'lastDelete' : []
+                }
+        if o['operationType'] == 'start' or o['operationType'] == 'reset':
+            recent_instances[name]['lastStart'].append(convert_gcloud_time(o['endTime']))
+        if o['operationType'] == 'stop':
+            recent_instances[name]['lastStop'].append(convert_gcloud_time(o['endTime']))
+        if o['operationType'] == 'compute.instances.guestTerminate':
+            recent_instances[name]['lastComplete'].append(convert_gcloud_time(o['endTime']))
+        if o['operationType'] == 'compute.instances.preempted':
+            recent_instances[name]['lastPreempt'].append(convert_gcloud_time(o['endTime']))
+        if o['operationType'] == 'insert':
+            recent_instances[name]['lastCreate'].append(convert_gcloud_time(o['endTime']))
+        if o['operationType'] == 'delete':
+            recent_instances[name]['lastDelete'].append(convert_gcloud_time(o['endTime']))
 
     zoneOpsCached = True
 
-def _get_last_time(group, instance, prop):
+def _get_last_time(instance, prop):
     if not zoneOpsCached:
         _cache_zone_ops()
 
-    if len(instances[group][instance][prop]) > 0:
-        return instances[group][instance][prop][0]
+    if len(recent_instances[instance][prop]) > 0:
+        return recent_instances[instance][prop][0]
     else:
         return None
 
-def get_last_completed_time(group, instance):
-    return _get_last_time(group, instance, 'lastComplete')
+def get_last_completed_time(instance):
+    return _get_last_time(instance, 'lastComplete')
 
-def get_last_started_time(group, instance):
-    return _get_last_time(group, instance, 'lastStart')
+def get_last_started_time(instance):
+    return _get_last_time(instance, 'lastStart')
 
-def get_last_preempt_time(group, instance):
-    return _get_last_time(group, instance, 'lastPreempt')
+def get_last_preempt_time(instance):
+    return _get_last_time(instance, 'lastPreempt')
 
-def get_current_run_elapsed(group, instance):
-    start = get_last_started_time(group, instance)
-    stop = get_last_completed_time(group, instance)
+def get_current_run_elapsed(instance):
+    start = get_last_started_time(instance)
+    stop = get_last_completed_time(instance)
 
     if not start:
         return 0
@@ -137,9 +156,9 @@ def get_current_run_elapsed(group, instance):
     else:
         return delta.total_seconds()
 
-def get_last_run_elapsed(group, instance):
-    start = get_last_started_time(group, instance)
-    stop = get_last_completed_time(group, instance)
+def get_last_run_elapsed(instance):
+    start = get_last_started_time(instance)
+    stop = get_last_completed_time(instance)
 
     if start and stop:
         delta = stop - start
@@ -151,17 +170,26 @@ def get_last_run_elapsed(group, instance):
     else:
         return delta.total_seconds()
 
-def get_last_run_preempted(group, instance):
-    start = get_last_started_time(group, instance)
-    preempt = get_last_preempt_time(group, instance)
+def get_last_run_preempted(instance):
+    start = get_last_started_time(instance)
+    preempt = get_last_preempt_time(instance)
 
     if start and preempt:
         return start < preempt
     else:
         return False
 
-def get_preemption_count(group, instance):
-    return len(instances[group][instance]['lastPreempt'])
+def get_last_run_completed(instance):
+    start = get_last_started_time(instance)
+    complete = get_last_completed_time(instance)
+
+    if start and complete:
+        return start < complete
+    else:
+        return False
+
+def get_preemption_count(instance):
+    return len(recent_instances[instance]['lastPreempt'])
 
 def start_instance(zone, instance):
     """starts instance"""
@@ -190,6 +218,16 @@ def stop_instance(zone, instance):
     response = request.execute()
     return response
 
+
+def delete_instance(zone, instance):
+    return
+
+def find_zone():
+    return
+
+def create_instance(zone, group, index, name):
+    return
+
 def get_status(zone, instance):
     request = compute.instances().get(
         project=projectID,
@@ -198,75 +236,62 @@ def get_status(zone, instance):
     response = request.execute()
     return response['status']
 
-
-def InstanceGroupStarter(group):
+def MonitorTrigger(group):
     response = ""
-    for instance in instances[group]:
-        start_instance(instances[group][instance]['zone'], instances[group][instance]['name'])
-        response += get_time_string() + "Starting instance: " + instances[group][instance]['name'] + "\r\n"
-    return response
-
-def MonitorGroup(group):
-    response = ""
-    for i in instances[group]:
-        if get_last_run_preempted(group, instances[group][i]['name']):
-            start_instance(instances[group][i]['zone'], instances[group][i]['name'])
-            response += get_time_string() + "Instance: " + instances[group][i]['name'] + " was preempted, restarting" + "\r\n"
+    for i in current_instances:
+        if get_last_run_preempted(i['name']):
+            start_instance(i['zone'], i['name'])
+            response += get_time_string() + "Instance: " + i['name'] + " was preempted, restarting" + "\r\n"
             continue
-        if get_current_run_elapsed(group, instances[group][i]['name']) > instances[group][i]['max_expected_run']:
-            restart_instance(instances[group][i]['zone'], instances[group][i]['name'])
-            response += get_time_string() + "Instance: " + instances[group][i]['name'] + " exceeded max run, restarting" + "\r\n"
+        if get_current_run_elapsed(i['name']) > i['max_expected_run']:
+            restart_instance(i['zone'], i['name'])
+            response += get_time_string() + "Instance: " + i['name'] + " exceeded max run, restarting" + "\r\n"
             continue
+        if get_last_run_completed(i['name']):
+            delete_instance(i['zone'], i['name'])
+            response += get_time_string() + "Instance: " + i['name'] + " was deleted" + "\r\n"
     if len(response) == 0:
         return get_time_string() + "All instances running normally"
     return response
 
-def InstanceGroupStopper(group):
+def StartOrCreateInstance(group, index):
+    name = group + "_p_" + index
+    for i in current_instances:
+        if i['name'] == name:
+            start_instance(i['zone'], i['name'])
+            return get_time_string() + "Instance: " + name + " was started" + "\r\n"
+    create_instance(find_zone(), group, index, name)
+    return get_time_string() + "Instance: " + name + " was created & started" + "\r\n"
+
+def StopAllTrigger():
     response = ""
-    for instance in instances[group]:
-        stop_instance(instances[group][instance]['zone'], instances[group][instance]['name'])
-        response += get_time_string() + "Stopping instance: " + instances[group][instance]['name'] + "\r\n"
-    return response
+    for i in current_instances:
+        stop_instance(i['zone'], i['name'])
+        response += get_time_string() + "Instance: " + i['name'] + " was stopped" + "\r\n"
+    return
 
 class BayArea4kStartTrigger(webapp2.RequestHandler):
-    def get(self):
-        self.response.write(InstanceGroupStarter('bayarea_4k_p_instances'))
-
-class BayArea4kStopTrigger(webapp2.RequestHandler):
-    def get(self):
-        self.response.write(InstanceGroupStopper('bayarea_4k_p_instances'))
-
-class BayArea4kMonitorTrigger(webapp2.RequestHandler):
-    def get(self):
-        self.response.write(MonitorGroup('bayarea_4k_p_instances'))
+    def get(self, index):
+        self.response.write(StartOrCreateInstance('bayarea_4k', index))
 
 class Sask4kStartTrigger(webapp2.RequestHandler):
     def get(self):
-        self.response.write(InstanceGroupStarter('sask_4k_p_instances'))
-
-class Sask4kStopTrigger(webapp2.RequestHandler):
-    def get(self):
-        self.response.write(InstanceGroupStopper('sask_4k_p_instances'))
-
-class Sask4kMonitorTrigger(webapp2.RequestHandler):
-    def get(self):
-        self.response.write(MonitorGroup('sask_4k_p_instances'))
+        self.response.write(StartOrCreateInstance('sask_4k', index))
 
 class StatusPage(webapp2.RequestHandler):
     def get(self):
         status_items = [];
-        for group in instances:
-            for instance in sorted(instances[group], key=lambda k: instances[group][k]['name']):
-                    status_items.append({
-                        'instance_name': instance,
-                        'instance_status': get_status(instances[group][instance]['zone'], instances[group][instance]['name']),
-                        'instance_started': str(get_last_started_time(group, instance)),
-                        'instance_completed': str(get_last_completed_time(group, instance)),
-                        'instance_comp_elapsed': str(get_last_run_elapsed(group, instance)),
-                        'instance_curr_elapsed': str(get_current_run_elapsed(group, instance)),
-                        'instance_was_preempted': str(get_last_run_preempted(group, instance)),
-                        'instance_preempted_count': str(get_preemption_count(group, instance))
-                        })
+        for i in sorted(recent_instances, key=lambda k: k['name']):
+                status_items.append({
+                    'instance_name': i['name'],
+                    'instance_status': get_status(i['zone'], i['name']),
+                    'instance_started': str(get_last_started_time(i['name'])),
+                    'instance_completed': str(get_last_completed_time(i['name'])),
+                    'instance_comp_elapsed': str(get_last_run_elapsed(i['name'])),
+                    'instance_curr_elapsed': str(get_current_run_elapsed(i['name'])),
+                    'instance_was_preempted': str(get_last_run_preempted(i['name'])),
+                    'instance_preempted_count': str(get_preemption_count(i['name']))
+                    })
 
         data = {}
         data['title'] = "Instance Status"
@@ -281,12 +306,10 @@ for g in instances:
         assert instances[g][i]['name'] == i, "Missmatched key and name \"%s\" != \"%s\"" % (i, instances[g][i]['name'])
 
 app = webapp2.WSGIApplication([
-    ('/BayArea4kStart',     BayArea4kStartTrigger),
-    ('/BayArea4kStop',      BayArea4kStopTrigger),
-    ('/BayArea4kMonitor',   BayArea4kMonitorTrigger),
-    ('/Sask4kStart',        Sask4kStartTrigger),
-    ('/Sask4kStop',         Sask4kStopTrigger),
-    ('/Sask4kMonitor',      Sask4kMonitorTrigger),
-    ('/Status', StatusPage),
+    ('/BayArea4kStart/(\d+)',       BayArea4kStartTrigger),
+    ('/Sask4kStart/(\d+)',          Sask4kStartTrigger),
+    ('/StopAll',                    StopAllTrigger),
+    ('/Monitor',                    MonitorTrigger),
+    ('/Status',                     StatusPage),
 ], debug=True)
 
