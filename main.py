@@ -15,7 +15,7 @@ compute = discovery.build('compute','v1',
 projectID = 'wrf-blipmaps'
 zoneOpsCached = False
 daysToScanBack = 1
-maxRunningInstancesPerZone = 3
+maxRunningInstancesPerZone = 4
 
 simulations = {
     'bayarea_4k' : {
@@ -232,7 +232,11 @@ def find_zone():
             'zone' : z,
             'count' : len(filter(lambda t: current_instances[t]['zone'] == z, current_instances))
             })
-    return sorted(zones, key=lambda k: k['count'])[0]['zone']
+    candidate = min(zones, key=lambda k: k['count'])
+    if candidate['count'] >= maxRunningInstancesPerZone:
+        return None
+    else:
+        return candidate['zone']
 
 def create_instance(zone, group, index, name):
     return
