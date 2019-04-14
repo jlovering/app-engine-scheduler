@@ -54,7 +54,7 @@ for zone in deploy_zones:
         for i in response['items']:
             inst = {
             'name' : i['name'],
-            'zone' : i['zone'],
+            'zone' : i['zone'].split('/')[-1],
             'id' : i['id']
             }
             for m in i['metadata']['items']:
@@ -226,7 +226,13 @@ def delete_instance(zone, instance):
     return
 
 def find_zone():
-    return
+    zones = []
+    for z in deploy_zones:
+        zones.append({
+            'zone' : z,
+            'count' : len(filter(lambda t: current_instances[t]['zone'] == z, current_instances))
+            })
+    return sorted(zones, key=lambda k: k['count'])[0]['zone']
 
 def create_instance(zone, group, index, name):
     return
