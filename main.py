@@ -251,10 +251,7 @@ def create_instance(zone, group, index, name):
         project=projectID,
         image='rasp-blipmap-template').execute()['selfLink']
 
-    startup_script = open(
-        os.path.join(
-            os.path.dirname(__file__), 'rasp-blipmap-startup.sh'), 'r').read()
-
+    import startup_script
     config = {
         'name': name,
         'machineType': "zones/%s/machineTypes/%s" % (zone, machineType),
@@ -329,7 +326,7 @@ def create_instance(zone, group, index, name):
                 },
                 {
                     "key": "startup-script",
-                    "value": startup_script
+                    "value": startup_script.startup_script
                 }
             ],
         }
