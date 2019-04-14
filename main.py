@@ -14,8 +14,11 @@ compute = discovery.build('compute','v1',
 
 projectID = 'wrf-blipmaps'
 zoneOpsCached = False
+instancesCached = False
 daysToScanBack = 1
 maxRunningInstancesPerZone = 4
+liveDelete = False
+machineType = 'f1-micro'
 
 simulations = {
     'bayarea_4k' : {
@@ -36,33 +39,12 @@ simulations = {
     },
 }
 
-startup_script = open(
-        os.path.join(
-            os.path.dirname(__file__), 'rasp-blipmap-startup.sh'), 'r').read()
-
 deploy_zones = [
     'us-west1-a',
     'us-central1-c'
     ]
 
 current_instances = {}
-
-for zone in deploy_zones:
-    request = compute.instances().list(project=projectID, zone=zone)
-    while request is not None:
-        response = request.execute()
-        for i in response['items']:
-            inst = {
-            'name' : i['name'],
-            'zone' : i['zone'].split('/')[-1],
-            'id' : i['id'],
-            'status' : i['status']
-            }
-            for m in i['metadata']['items']:
-                if m['key'] == 'max_expected_run':
-                    inst['max_expected_run'] = m['value']
-            current_instances[inst['name']] = inst
-        request = compute.instances().list_next(previous_request=request, previous_response=response)
 
 recent_instances = {}
 
@@ -77,8 +59,29 @@ def convert_gcloud_time(gcloudtime):
 def get_time_string():
     return datetime.datetime.utcnow().strftime('[%Y-%m-%d %H:%M:%S] ')
 
+def _cache_current_instances():
+    global instancesCached
+    for zone in deploy_zones:
+        request = compute.instances().list(project=projectID, zone=zone)
+        while request is not None:
+            response = request.execute()
+            for i in response['items']:
+                inst = {
+                'name' : i['name'],
+                'zone' : i['zone'].split('/')[-1],
+                'id' : i['id'],
+                'status' : i['status']
+                }
+                for m in i['metadata']['items']:
+                    if m['key'] == 'max_expected_run':
+                        inst['max_expected_run'] = m['value']
+                current_instances[inst['name']] = inst
+            request = compute.instances().list_next(previous_request=request, previous_response=response)
+    instancesCached = True
+
 def _cache_zone_ops():
     global zoneOpsCached
+
     ops_of_interest = ['start', 'reset', 'compute.instances.guestTerminate', 'compute.instances.preempted', 'insert', 'delete']
     ops = []
     for z in deploy_zones:
@@ -190,43 +193,46 @@ def get_last_run_completed(instance):
         return False
 
 def get_preemption_count(instance):
+    if not zoneOpsCached:
+        _cache_zone_ops()
     return len(recent_instances[instance]['lastPreempt'])
 
 def get_still_instantance(instance):
+    if not instancesCached:
+        _cache_current_instances()
     return instance in current_instances
 
 def start_instance(zone, instance):
     """starts instance"""
-    request = compute.instances().start(
+    return compute.instances().start(
         project=projectID,
         zone=zone,
-        instance=instance)
-    response = request.execute()
-    return response
+        instance=instance).execute()
 
 def restart_instance(zone, instance):
     """restarts instance"""
-    request = compute.instances().reset(
+    return compute.instances().reset(
         project=projectID,
         zone=zone,
-        instance=instance)
-    response = request.execute()
-    return response
+        instance=instance).execute()
 
 def stop_instance(zone, instance):
     """stop instance"""
-    request = compute.instances().stop(
+    return compute.instances().stop(
         project=projectID,
         zone=zone,
-        instance=instance)
-    response = request.execute()
-    return response
-
+        instance=instance).ececute()
 
 def delete_instance(zone, instance):
-    return
+    return compute.instances().delete(
+        project=projectID,
+        zone=zone,
+        instance=instance).execute()
 
 def find_zone():
+    if not instancesCached:
+        _cache_current_instances()
+
     zones = []
     for z in deploy_zones:
         zones.append({
@@ -241,33 +247,126 @@ def find_zone():
         return candidate['zone']
 
 def create_instance(zone, group, index, name):
-    return
+    sourceDiskImage = compute.images().get(
+        project=projectID,
+        image='rasp-blipmap-template').execute()['selfLink']
+
+    startup_script = open(
+        os.path.join(
+            os.path.dirname(__file__), 'rasp-blipmap-startup.sh'), 'r').read()
+
+    config = {
+        'name': name,
+        'machineType': "zones/%s/machineTypes/%s" % (zone, machineType),
+        'canIpForward': False,
+        # Specify a network interface with NAT to access the public
+        # internet.
+        'networkInterfaces': [{
+            'network': 'global/networks/default',
+            'accessConfigs': [{
+                'type': 'ONE_TO_ONE_NAT',
+                'networkTier': "STANDARD",
+                'name': 'External NAT',
+            }]
+        }],
+        # Specify the boot disk and the image to use as a source.
+        'disks': [{
+            'boot': True,
+            'autoDelete': True,
+            'initializeParams': {
+                'sourceImage': sourceDiskImage,
+            }
+        }],
+        # Allow the instance to access cloud storage and logging.
+        'serviceAccounts': [{
+            'email': 'default',
+            'scopes': [
+                'https://www.googleapis.com/auth/devstorage.read_only',
+                'https://www.googleapis.com/auth/logging.write',
+                'https://www.googleapis.com/auth/monitoring.write',
+                'https://www.googleapis.com/auth/servicecontrol',
+                'https://www.googleapis.com/auth/service.management.readonly',
+                'https://www.googleapis.com/auth/trace.append'
+            ]
+        }],
+        # Preemptible image
+        'scheduling': {
+            'automaticRestart': False,
+            'onHostMaintenance': 'TERMINATE',
+            'preemptible': True
+        },
+        # Metadata is readable from the instance and allows you to
+        # pass configuration from deployment scripts to instances.
+        'metadata': {
+            'items': [
+                {
+                    "key": "TZ",
+                    "value": simulations[group]['TZ']
+                },
+                {
+                    "key": "bucket_uri",
+                    "value": simulations[group]['bucket_uri']
+                },
+                {
+                    "key": "day_offset",
+                    "value": "%d" % index
+                },
+                {
+                    "key": "docker_image",
+                    "value": simulations[group]['docker_image']
+                },
+                {
+                    "key": "site_name",
+                    "value": simulations[group]['site_name']
+                },
+                {
+                    "key": "starthh",
+                    "value": simulations[group]['starthh']
+                },
+                {
+                    "key": "max_expected_run",
+                    "value": simulations[group]['max_expected_run']
+                },
+                {
+                    "key": "startup-script",
+                    "value": startup_script
+                }
+            ],
+        }
+    }
+    return compute.instances().insert(
+        project=projectID,
+        zone=zone,
+        body=config).execute()
 
 def get_status(instance):
     zone = recent_instances[instance]['zone']
-    request = compute.instances().get(
+    return compute.instances().get(
         project=projectID,
         zone=zone,
-        instance=instance)
-    response = request.execute()
-    return response['status']
+        instance=instance).execute()['status']
 
 def MonitorTrigger():
+    if not instancesCached:
+        _cache_current_instances()
     response = ""
     for i in current_instances:
-        if get_last_run_preempted(i['name']):
-            start_instance(i['zone'], i['name'])
-            response += get_time_string() + "Instance: " + i['name'] + " was preempted, restarting" + "\r\n"
+        if get_last_run_preempted(current_instances[i]['name']):
+            start_instance(current_instances[i]['zone'], current_instances[i]['name'])
+            response += get_time_string() + "Instance: " + current_instances[i]['name'] + " was preempted, restarting" + "\r\n"
             continue
-        if get_current_run_elapsed(i['name']) > i['max_expected_run']:
-            restart_instance(i['zone'], i['name'])
-            response += get_time_string() + "Instance: " + i['name'] + " exceeded max run, restarting" + "\r\n"
+        if get_current_run_elapsed(current_instances[i]['name']) > current_instances[i]['max_expected_run']:
+            restart_instance(current_instances[i]['zone'], current_instances[i]['name'])
+            response += get_time_string() + "Instance: " + current_instances[i]['name'] + " exceeded max run, restarting" + "\r\n"
             continue
-        if get_last_run_completed(i['name']):
-            delete_instance(i['zone'], i['name'])
-            response += get_time_string() + "Instance: " + i['name'] + " was deleted" + "\r\n"
+        if get_last_run_completed(current_instances[i]['name']):
+            if liveDelete:
+                delete_instance(current_instances[i]['zone'], current_instances[i]['name'])
+                response += get_time_string() + "Instance: " + current_instances[i]['name'] + " was deleted" + "\r\n"
+            else:
+                response += get_time_string() + "Instance: " + current_instances[i]['name'] + " eligible for delete (not exectuted)" + "\r\n"
     if len(response) == 0:
-        return get_time_string() + "All instances running normally"
+        return get_time_string() + "Nothing to report"
     return response
 
 def StartOrCreateInstance(group, index):
@@ -276,10 +375,16 @@ def StartOrCreateInstance(group, index):
         start_instance(i['zone'], i['name'])
         return get_time_string() + "Instance: " + name + " was started" + "\r\n"
     else:
-        create_instance(find_zone(), group, index, name)
-        return get_time_string() + "Instance: " + name + " was created & started" + "\r\n"
+        zone = fine_zone()
+        if zone:
+            create_instance(zone, group, index, name)
+            return get_time_string() + "Instance: " + name + " was created & started" + "\r\n"
+        else:
+            return get_time_string() + "Instance: " + name + " could not be created, no zone available" + "\r\n"
 
 def StopAllTrigger():
+    if not instancesCached:
+        _cache_current_instances()
     response = ""
     for i in current_instances:
         stop_instance(i['zone'], i['name'])
