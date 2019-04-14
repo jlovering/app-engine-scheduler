@@ -303,7 +303,7 @@ def create_instance(zone, group, index, name):
                 },
                 {
                     "key": "day_offset",
-                    "value": "%d" % index
+                    "value": index
                 },
                 {
                     "key": "docker_image",
@@ -369,7 +369,7 @@ def Monitor():
 def StartOrCreateInstance(group, index):
     if not instancesCached:
         _cache_current_instances()
-    name = "rasp-blipmap-" + group + "-p-" + str(index)
+    name = "rasp-blipmap-" + group + "-p-" + index
     if name in current_instances:
         start_instance(current_instances[name]['zone'], name)
         return get_time_string() + "Instance: " + name + " was started" + "\r\n"
@@ -384,7 +384,7 @@ def StartOrCreateInstance(group, index):
 def StopInstance(group, index):
     if not instancesCached:
         _cache_current_instances()
-    name = "rasp-blipmap-" + group + "-p-" + str(index)
+    name = "rasp-blipmap-" + group + "-p-" + index
     if name in current_instances:
         stop_instance(current_instances[name]['zone'], name)
         return get_time_string() + "Instance: " + name + " was stoped" + "\r\n"
