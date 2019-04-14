@@ -55,7 +55,8 @@ for zone in deploy_zones:
             inst = {
             'name' : i['name'],
             'zone' : i['zone'].split('/')[-1],
-            'id' : i['id']
+            'id' : i['id'],
+            'status' : i['status']
             }
             for m in i['metadata']['items']:
                 if m['key'] == 'max_expected_run':
@@ -230,8 +231,9 @@ def find_zone():
     for z in deploy_zones:
         zones.append({
             'zone' : z,
-            'count' : len(filter(lambda t: current_instances[t]['zone'] == z, current_instances))
+            'count' : len(filter(lambda t: current_instances[t]['zone'] == z and current_instances[t]['status'] != 'TERMINATED', current_instances))
             })
+    print zones
     candidate = min(zones, key=lambda k: k['count'])
     if candidate['count'] >= maxRunningInstancesPerZone:
         return None
