@@ -343,7 +343,7 @@ def get_status(instance):
         zone=zone,
         instance=instance).execute()['status']
 
-def MonitorTrigger():
+def Monitor():
     if not instancesCached:
         _cache_current_instances()
     response = ""
@@ -390,7 +390,7 @@ def StopInstance(group, index):
         return get_time_string() + "Instance: " + name + " was stoped" + "\r\n"
 
 
-def StopAllTrigger():
+def StopAll():
     if not instancesCached:
         _cache_current_instances()
     response = ""
@@ -399,6 +399,13 @@ def StopAllTrigger():
         response += get_time_string() + "Instance: " + name + " was stopped" + "\r\n"
     return
 
+class StopAllTrigger(webapp2.RequestHandler):
+    def get(self):
+        self.response.write(StopAll())
+
+class MonitorTrigger(webapp2.RequestHandler):
+    def get(self):
+        self.response.write(Monitor())
 
 class StartTrigger(webapp2.RequestHandler):
     def get(self, group, index):
