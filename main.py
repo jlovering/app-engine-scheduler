@@ -246,7 +246,7 @@ def find_zone():
 def create_instance(zone, group, index, name):
     sourceDiskImage = compute.images().get(
         project=projectID,
-        image='rasp-blipmap-template').execute()['selfLink']
+        image='rasp-blipmap-template-v2').execute()['selfLink']
 
     import startup_script
     config = {
