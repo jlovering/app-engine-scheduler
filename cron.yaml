@@ -45,7 +45,7 @@ cron:
   schedule: every day 11:00
 
 - description: Start Sask 4k Forcast + 1
-  url: /Start/sask-4k/2
+  url: /Start/sask-4k/1
   timezone: UTC
   schedule: every day 8:20
 
