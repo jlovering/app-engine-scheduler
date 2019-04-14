@@ -151,9 +151,7 @@ def get_current_run_elapsed(instance):
     if start and stop and start < stop:
         return 0
 
-    print datetime.datetime.utcnow(), start
     delta = datetime.datetime.utcnow() - start
-    print delta
 
     if delta.total_seconds() < 0:
         return 0
@@ -239,7 +237,6 @@ def find_zone():
             'zone' : z,
             'count' : len(filter(lambda t: current_instances[t]['zone'] == z and current_instances[t]['status'] != 'TERMINATED', current_instances))
             })
-    print zones
     candidate = min(zones, key=lambda k: k['count'])
     if candidate['count'] >= maxRunningInstancesPerZone:
         return None
@@ -337,6 +334,8 @@ def create_instance(zone, group, index, name):
         body=config).execute()
 
 def get_status(instance):
+    if not get_still_instantance(instance):
+        return "DELETED"
     zone = recent_instances[instance]['zone']
     return compute.instances().get(
         project=projectID,
@@ -362,6 +361,7 @@ def Monitor():
                 response += get_time_string() + "Instance: " + current_instances[i]['name'] + " was deleted" + "\r\n"
             else:
                 response += get_time_string() + "Instance: " + current_instances[i]['name'] + " eligible for delete (not exectuted)" + "\r\n"
+            continue
     if len(response) == 0:
         return get_time_string() + "Nothing to report"
     return response
@@ -439,8 +439,7 @@ class StatusPage(webapp2.RequestHandler):
         data['status_items'] = status_items
 
         template = jinja_environment.get_template('status.html')
-        print template.render(data)
-        #self.response.out.write(template.render(data))
+        self.response.out.write(template.render(data))
 
 app = webapp2.WSGIApplication([
     ('/Start/(.*)/(\d+)',           StartTrigger),
