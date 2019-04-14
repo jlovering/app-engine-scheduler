@@ -45,7 +45,7 @@ deploy_zones = [
     'us-central1-c'
     ]
 
-current_instances = []
+current_instances = {}
 
 for zone in deploy_zones:
     request = compute.instances().list(project=projectID, zone=zone)
@@ -58,12 +58,12 @@ for zone in deploy_zones:
             'id' : i['id']
             }
             for m in i['metadata']['items']:
-                if m['key'] = 'max_expected_run' :
+                if m['key'] == 'max_expected_run':
                     inst['max_expected_run'] = m['value']
-            current_instances.append(inst)
+            current_instances[inst['name']] = inst
         request = compute.instances().list_next(previous_request=request, previous_response=response)
 
-recent_instances = []
+recent_instances = {}
 
 def convert_gcloud_time(gcloudtime):
     # Because why used a fucking standard format?
@@ -92,9 +92,9 @@ def _cache_zone_ops():
     for o in ops_today_r_sorted:
         name = o['targetLink'].split('/')[-1]
         if not name in recent_instances:
-            recent_instances.append( {
+            recent_instances[name] = {
                 'name' : name,
-                'zone' : o['zone'],
+                'zone' : o['zone'].split('/')[-1],
                 'id' : o['targetId'],
                 'lastStart' : [],
                 'lastStop' : [],
@@ -191,6 +191,9 @@ def get_last_run_completed(instance):
 def get_preemption_count(instance):
     return len(recent_instances[instance]['lastPreempt'])
 
+def get_still_instantance(instance):
+    return instance in current_instances
+
 def start_instance(zone, instance):
     """starts instance"""
     request = compute.instances().start(
@@ -228,7 +231,8 @@ def find_zone():
 def create_instance(zone, group, index, name):
     return
 
-def get_status(zone, instance):
+def get_status(instance):
+    zone = recent_instances[instance]['zone']
     request = compute.instances().get(
         project=projectID,
         zone=zone,
@@ -236,7 +240,7 @@ def get_status(zone, instance):
     response = request.execute()
     return response['status']
 
-def MonitorTrigger(group):
+def MonitorTrigger():
     response = ""
     for i in current_instances:
         if get_last_run_preempted(i['name']):
@@ -256,12 +260,12 @@ def MonitorTrigger(group):
 
 def StartOrCreateInstance(group, index):
     name = group + "_p_" + index
-    for i in current_instances:
-        if i['name'] == name:
-            start_instance(i['zone'], i['name'])
-            return get_time_string() + "Instance: " + name + " was started" + "\r\n"
-    create_instance(find_zone(), group, index, name)
-    return get_time_string() + "Instance: " + name + " was created & started" + "\r\n"
+    if name in current_instances:
+        start_instance(i['zone'], i['name'])
+        return get_time_string() + "Instance: " + name + " was started" + "\r\n"
+    else:
+        create_instance(find_zone(), group, index, name)
+        return get_time_string() + "Instance: " + name + " was created & started" + "\r\n"
 
 def StopAllTrigger():
     response = ""
@@ -280,18 +284,21 @@ class Sask4kStartTrigger(webapp2.RequestHandler):
 
 class StatusPage(webapp2.RequestHandler):
     def get(self):
+        if not zoneOpsCached:
+            _cache_zone_ops()
         status_items = [];
-        for i in sorted(recent_instances, key=lambda k: k['name']):
-                status_items.append({
-                    'instance_name': i['name'],
-                    'instance_status': get_status(i['zone'], i['name']),
-                    'instance_started': str(get_last_started_time(i['name'])),
-                    'instance_completed': str(get_last_completed_time(i['name'])),
-                    'instance_comp_elapsed': str(get_last_run_elapsed(i['name'])),
-                    'instance_curr_elapsed': str(get_current_run_elapsed(i['name'])),
-                    'instance_was_preempted': str(get_last_run_preempted(i['name'])),
-                    'instance_preempted_count': str(get_preemption_count(i['name']))
-                    })
+        for i in sorted(recent_instances):
+            status_items.append({
+                'instance_name': i,
+                'instance_status': get_status(i),
+                'instance_started': str(get_last_started_time(i)),
+                'instance_completed': str(get_last_completed_time(i)),
+                'instance_comp_elapsed': str(get_last_run_elapsed(i)),
+                'instance_curr_elapsed': str(get_current_run_elapsed(i)),
+                'instance_was_preempted': str(get_last_run_preempted(i)),
+                'instance_preempted_count': str(get_preemption_count(i)),
+                'instance_live': str(get_still_instantance(i))
+                })
 
         data = {}
         data['title'] = "Instance Status"
@@ -299,11 +306,8 @@ class StatusPage(webapp2.RequestHandler):
         data['status_items'] = status_items
 
         template = jinja_environment.get_template('status.html')
-        self.response.out.write(template.render(data))
-
-for g in instances:
-    for i in instances[g]:
-        assert instances[g][i]['name'] == i, "Missmatched key and name \"%s\" != \"%s\"" % (i, instances[g][i]['name'])
+        print template.render(data)
+        #self.response.out.write(template.render(data))
 
 app = webapp2.WSGIApplication([
     ('/BayArea4kStart/(\d+)',       BayArea4kStartTrigger),
