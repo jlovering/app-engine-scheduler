@@ -12,11 +12,11 @@ handlers:
   static_files: favicon.ico
   upload: favicon\.ico
 
-- url: /BayArea4kStart/.*
+- url: /Start/.*
   script: main.app
   login: admin
 
-- url: /Sask4kStart/.*
+- url: /Stop/.*
   script: main.app
   login: admin
 
@@ -26,9 +26,11 @@ handlers:
 
 - url: /StopAll
   script: main.app
-  login: admin
 
 - url: /Status
+  script: main.app
+
+- url: /
   script: main.app
 
 libraries:

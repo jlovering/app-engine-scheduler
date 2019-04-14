@@ -1,30 +1,70 @@
 cron:
-- description: Start Bay Area 4k Forcast
-  url: /BayArea4kStart
+- description: Start Bay Area 4k Forcast + 0
+  url: /Start/bayarea-4k/0
   timezone: UTC
-  schedule: every day 15:00
+  schedule: every day 14:00
 
-- description: Monitor Bay Area 4k Forcast
-  url: /BayArea4kMonitor
+- description: Stop Bay Area 4k Forcast + 0
+  url: /Stop/bayarea-4k/0
   timezone: UTC
-  schedule: every 5 minutes from 15:00 to 16:00
+  schedule: every day 16:00
 
-- description: Stop any stragglers for Bay Area 4k Forcast
-  url: /BayArea4kStop
+- description: Start Bay Area 4k Forcast + 1
+  url: /Start/bayarea-4k/1
   timezone: UTC
-  schedule: every day 16:15
+  schedule: every day 14:20
 
-- description: Start Sask 4k Forcast
-  url: /Sask4kStart
+- description: Stop Bay Area 4k Forcast + 1
+  url: /Stop/bayarea-4k/1
   timezone: UTC
-  schedule: every day 9:00
+  schedule: every day 16:20
 
-- description: Monitor Sask 4k Forcast
-  url: /Sask4kMonitor
+- description: Start Bay Area 4k Forcast + 2
+  url: /Start/bayarea-4k/2
   timezone: UTC
-  schedule: every 5 minutes from 9:00 to 11:00
+  schedule: every day 14:40
 
-- description: Stop any stragglers for Sask 4k Forcast
-  url: /Sask4kStop
+- description: Stop Bay Area 4k Forcast + 2
+  url: /Stop/bayarea-4k/2
   timezone: UTC
-  schedule: every day 11:15
+  schedule: every day 16:40
+
+- description: Monitor Forcasts
+  url: /Monitor
+  timezone: UTC
+  schedule: every 5 minutes from 14:00 to 16:00
+
+- description: Start Sask 4k Forcast + 0
+  url: /Start/sask-4k/0
+  timezone: UTC
+  schedule: every day 8:00
+
+- description: Stop Sask 4k Forcast + 0
+  url: /Stop/sask-4k/0
+  timezone: UTC
+  schedule: every day 11:00
+
+- description: Start Sask 4k Forcast + 1
+  url: /Start/sask-4k/2
+  timezone: UTC
+  schedule: every day 8:20
+
+- description: Stop Sask 4k Forcast + 1
+  url: /Stop/sask-4k/1
+  timezone: UTC
+  schedule: every day 11:20
+
+- description: Start Sask 4k Forcast + 2
+  url: /Start/sask-4k/2
+  timezone: UTC
+  schedule: every day 8:40
+
+- description: Stop Sask 4k Forcast + 2
+  url: /Stop/sask-4k/2
+  timezone: UTC
+  schedule: every day 11:40
+
+- description: Monitor Forcasts
+  url: /Monitor
+  timezone: UTC
+  schedule: every 5 minutes from 8:00 to 10:30

@@ -18,10 +18,10 @@ instancesCached = False
 daysToScanBack = 1
 maxRunningInstancesPerZone = 4
 liveDelete = False
-machineType = 'f1-micro'
+machineType = 'n1-highcpu-8'
 
 simulations = {
-    'bayarea_4k' : {
+    'bayarea-4k' : {
         'TZ' : 'America/Los_Angeles',
         'bucket_uri' : 'gs://bucket-blipmap-bayarea-4k',
         'docker_image' : 'gcr.io/wrf-blipmaps/rasp-blipmap-bayarea-4k:latest',
@@ -29,7 +29,7 @@ simulations = {
         'starthh' : 12,
         'max_expected_run' : 700,
     },
-    'sask_4k' : {
+    'sask-4k' : {
         'TZ' : 'America/Regina',
         'bucket_uri' : 'gs://bucket-blipmap-sask-4k',
         'docker_image' : 'gcr.io/wrf-blipmaps/rasp-blipmap-sask-4k:latest',
@@ -221,7 +221,7 @@ def stop_instance(zone, instance):
     return compute.instances().stop(
         project=projectID,
         zone=zone,
-        instance=instance).ececute()
+        instance=instance).execute()
 
 def delete_instance(zone, instance):
     return compute.instances().delete(
@@ -370,34 +370,46 @@ def MonitorTrigger():
     return response
 
 def StartOrCreateInstance(group, index):
-    name = group + "_p_" + index
+    if not instancesCached:
+        _cache_current_instances()
+    name = "rasp-blipmap-" + group + "-p-" + str(index)
     if name in current_instances:
-        start_instance(i['zone'], i['name'])
+        start_instance(current_instances[name]['zone'], name)
         return get_time_string() + "Instance: " + name + " was started" + "\r\n"
     else:
-        zone = fine_zone()
+        zone = find_zone()
         if zone:
             create_instance(zone, group, index, name)
             return get_time_string() + "Instance: " + name + " was created & started" + "\r\n"
         else:
             return get_time_string() + "Instance: " + name + " could not be created, no zone available" + "\r\n"
 
+def StopInstance(group, index):
+    if not instancesCached:
+        _cache_current_instances()
+    name = "rasp-blipmap-" + group + "-p-" + str(index)
+    if name in current_instances:
+        stop_instance(current_instances[name]['zone'], name)
+        return get_time_string() + "Instance: " + name + " was stoped" + "\r\n"
+
+
 def StopAllTrigger():
     if not instancesCached:
         _cache_current_instances()
     response = ""
-    for i in current_instances:
-        stop_instance(i['zone'], i['name'])
-        response += get_time_string() + "Instance: " + i['name'] + " was stopped" + "\r\n"
+    for name in current_instances:
+        stop_instance(current_instances[name]['zone'], current_instances[name]['name'])
+        response += get_time_string() + "Instance: " + name + " was stopped" + "\r\n"
     return
 
-class BayArea4kStartTrigger(webapp2.RequestHandler):
-    def get(self, index):
-        self.response.write(StartOrCreateInstance('bayarea_4k', index))
 
-class Sask4kStartTrigger(webapp2.RequestHandler):
-    def get(self):
-        self.response.write(StartOrCreateInstance('sask_4k', index))
+class StartTrigger(webapp2.RequestHandler):
+    def get(self, group, index):
+        self.response.write(StartOrCreateInstance(group, index))
+
+class StopTrigger(webapp2.RequestHandler):
+    def get(self, group, index):
+        self.response.write(StopInstance(group, index))
 
 class StatusPage(webapp2.RequestHandler):
     def get(self):
@@ -427,10 +439,10 @@ class StatusPage(webapp2.RequestHandler):
         #self.response.out.write(template.render(data))
 
 app = webapp2.WSGIApplication([
-    ('/BayArea4kStart/(\d+)',       BayArea4kStartTrigger),
-    ('/Sask4kStart/(\d+)',          Sask4kStartTrigger),
+    ('/Start/(.*)/(\d+)',           StartTrigger),
+    ('/Stop/(.*)/(\d+)',            StopTrigger),
     ('/StopAll',                    StopAllTrigger),
     ('/Monitor',                    MonitorTrigger),
-    ('/Status',                     StatusPage),
+    ('/',                           StatusPage),
 ], debug=True)
 
