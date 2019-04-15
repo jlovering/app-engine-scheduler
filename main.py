@@ -17,7 +17,7 @@ zoneOpsCached = False
 instancesCached = False
 daysToScanBack = 1
 maxRunningInstancesPerZone = 4
-liveDelete = False
+liveDelete = True
 machineType = 'n1-highcpu-8'
 
 simulations = {
@@ -65,6 +65,9 @@ def _cache_current_instances():
         request = compute.instances().list(project=projectID, zone=zone)
         while request is not None:
             response = request.execute()
+            request = compute.instances().list_next(previous_request=request, previous_response=response)
+            if not response.has_key('items'):
+                continue
             for i in response['items']:
                 inst = {
                 'name' : i['name'],
@@ -76,7 +79,6 @@ def _cache_current_instances():
                     if m['key'] == 'max_expected_run':
                         inst['max_expected_run'] = m['value']
                 current_instances[inst['name']] = inst
-            request = compute.instances().list_next(previous_request=request, previous_response=response)
     instancesCached = True
 
 def _cache_zone_ops():

@@ -12,7 +12,7 @@ STARTHH=`curl -sS "http://metadata.google.internal/computeMetadata/v1/instance/a
 
 #Generated Params
 RUN_DATE=`TZ=$L_TZ date "+%Y%m%d"`
-FCST_DATE=`TZ=$L_TZ date --date="TZ=\"$L_TZ\" 00:00 $DAY_OFFSET day" "+%Y%m%d"`
+FCST_DATE=`TZ=$L_TZ date -d "+$DAY_OFFSET days" "+%Y%m%d"`
 #SH varies based off timezone and must match parames
 let SH=${STARTHH}+$DAY_OFFSET*24
 
