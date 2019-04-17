@@ -21,37 +21,14 @@ liveDelete = True
 machineType = 'n1-highcpu-8'
 localHost = False
 
-if localHost:
-    import logging
-    _Logger = logging.getLogger(__name__)
-    _Logger.setLevel(logging.INFO)
-else:
-    from google.cloud import logging
-    _Logger = logging.Client().logger('WRF_Control')
+import logging
 
-class LogWrapper:
-    CRITICAL=50
-    ERROR=40
-    WARNING=30
-    INFO=20
-    DEBUG=10
-    NOTSET=0
-    def _levelTranslate(self, level):
-        return {
-            50: 'CRITICAL',
-            40: 'ERROR',
-            30: 'WARNING',
-            20: 'INFO',
-            10: 'DEBUG',
-            0: 'NOTSET',
-        }[level].lower()
-    def log(self, msg, level):
-        if cloudLogging:
-            _Logger.log_text(msg, severity=self._levelTranslate(level))
-        else:
-            _Logger.log(level, msg)
-
-logger = LogWrapper()
+# Imports the Google Cloud client library
+import google.cloud.logging
+client = google.cloud.logging.Client()
+# Connects the logger to the root logging handler; by default this captures
+# all logs at INFO level and higher
+client.setup_logging()
 
 simulations = {
     'bayarea-4k' : {
@@ -419,7 +396,7 @@ def Monitor():
             continue
     if len(response) == 0:
         response += get_time_string() + "Nothing to report"
-    logger.log(response, logger.INFO)
+    logging.info(response)
     return
 
 def StartOrCreateInstance(group, index):
@@ -429,17 +406,17 @@ def StartOrCreateInstance(group, index):
     if name in current_instances:
         start_instance(current_instances[name]['zone'], name)
         response = get_time_string() + "Instance: " + name + " was started" + "\r\n"
-        logger.log(response, logger.INFO)
+        logging.info(response)
         return
     else:
         zone = find_zone()
         if zone:
             create_instance(zone, group, index, name)
             response = get_time_string() + "Instance: " + name + " was created & started" + "\r\n"
-            logger.log(response, logger.INFO)
+            logging.info(response)
         else:
             response = get_time_string() + "Instance: " + name + " could not be created, no zone available" + "\r\n"
-            logger.log(response, logger.INFO)
+            logging.info(response)
     return
 
 def StopInstance(group, index):
@@ -450,7 +427,7 @@ def StopInstance(group, index):
     if name in current_instances:
         stop_instance(current_instances[name]['zone'], name)
         response += get_time_string() + "Instance: " + name + " was stoped" + "\r\n"
-    logger.log(response, logger.INFO)
+    logging.info(response)
     return
 
 
@@ -461,7 +438,7 @@ def StopAll():
     for name in current_instances:
         stop_instance(current_instances[name]['zone'], current_instances[name]['name'])
         response += get_time_string() + "Instance: " + name + " was stopped" + "\r\n"
-    logger.log(response, logger.INFO)
+    logging.info(response)
     return
 
 class StopAllTrigger(webapp2.RequestHandler):
