@@ -19,6 +19,39 @@ daysToScanBack = 1
 maxRunningInstancesPerZone = 4
 liveDelete = True
 machineType = 'n1-highcpu-8'
+localHost = False
+
+if localHost:
+    import logging
+    _Logger = logging.getLogger(__name__)
+    _Logger.setLevel(logging.INFO)
+else:
+    from google.cloud import logging
+    _Logger = logging.Client().logger('WRF_Control')
+
+class LogWrapper:
+    CRITICAL=50
+    ERROR=40
+    WARNING=30
+    INFO=20
+    DEBUG=10
+    NOTSET=0
+    def _levelTranslate(self, level):
+        return {
+            50: 'CRITICAL',
+            40: 'ERROR',
+            30: 'WARNING',
+            20: 'INFO',
+            10: 'DEBUG',
+            0: 'NOTSET',
+        }[level].lower()
+    def log(self, msg, level):
+        if cloudLogging:
+            _Logger.log_text(msg, severity=self._levelTranslate(level))
+        else:
+            _Logger.log(level, msg)
+
+logger = LogWrapper()
 
 simulations = {
     'bayarea-4k' : {
@@ -109,7 +142,7 @@ def _cache_zone_ops():
                 'lastCreate' : [],
                 'lastDelete' : []
                 }
-        if o['operationType'] == 'start' or o['operationType'] == 'reset':
+        if o['operationType'] == 'start' or o['operationType'] == 'reset' or o['operationType'] == 'insert':
             recent_instances[name]['lastStart'].append(convert_gcloud_time(o['endTime']))
         if o['operationType'] == 'stop':
             recent_instances[name]['lastStop'].append(convert_gcloud_time(o['endTime']))
@@ -142,6 +175,12 @@ def get_last_started_time(instance):
 def get_last_preempt_time(instance):
     return _get_last_time(instance, 'lastPreempt')
 
+def get_last_create_time(instance):
+    return _get_last_time(instance, 'lastCreate')
+
+def get_last_delete_time(instance):
+    return _get_last_time(instance, 'lastDelete')
+
 def get_current_run_elapsed(instance):
     start = get_last_started_time(instance)
     stop = get_last_completed_time(instance)
@@ -163,6 +202,20 @@ def get_current_run_elapsed(instance):
 def get_last_run_elapsed(instance):
     start = get_last_started_time(instance)
     stop = get_last_completed_time(instance)
+
+    if start and stop:
+        delta = stop - start
+    else:
+        return 0
+
+    if delta.total_seconds() < 0:
+        return 0
+    else:
+        return delta.total_seconds()
+
+def get_last_instance_live_elapsed(instance):
+    start = get_last_create_time(instance)
+    stop = get_last_delete_time(instance)
 
     if start and stop:
         delta = stop - start
@@ -365,8 +418,9 @@ def Monitor():
                 response += get_time_string() + "Instance: " + current_instances[i]['name'] + " eligible for delete (not exectuted)" + "\r\n"
             continue
     if len(response) == 0:
-        return get_time_string() + "Nothing to report"
-    return response
+        response += get_time_string() + "Nothing to report"
+    logger.log(response, logger.INFO)
+    return
 
 def StartOrCreateInstance(group, index):
     if not instancesCached:
@@ -374,22 +428,30 @@ def StartOrCreateInstance(group, index):
     name = "rasp-blipmap-" + group + "-p-" + index
     if name in current_instances:
         start_instance(current_instances[name]['zone'], name)
-        return get_time_string() + "Instance: " + name + " was started" + "\r\n"
+        response = get_time_string() + "Instance: " + name + " was started" + "\r\n"
+        logger.log(response, logger.INFO)
+        return
     else:
         zone = find_zone()
         if zone:
             create_instance(zone, group, index, name)
-            return get_time_string() + "Instance: " + name + " was created & started" + "\r\n"
+            response = get_time_string() + "Instance: " + name + " was created & started" + "\r\n"
+            logger.log(response, logger.INFO)
         else:
-            return get_time_string() + "Instance: " + name + " could not be created, no zone available" + "\r\n"
+            response = get_time_string() + "Instance: " + name + " could not be created, no zone available" + "\r\n"
+            logger.log(response, logger.INFO)
+    return
 
 def StopInstance(group, index):
     if not instancesCached:
         _cache_current_instances()
     name = "rasp-blipmap-" + group + "-p-" + index
+    response = ""
     if name in current_instances:
         stop_instance(current_instances[name]['zone'], name)
-        return get_time_string() + "Instance: " + name + " was stoped" + "\r\n"
+        response += get_time_string() + "Instance: " + name + " was stoped" + "\r\n"
+    logger.log(response, logger.INFO)
+    return
 
 
 def StopAll():
@@ -399,6 +461,7 @@ def StopAll():
     for name in current_instances:
         stop_instance(current_instances[name]['zone'], current_instances[name]['name'])
         response += get_time_string() + "Instance: " + name + " was stopped" + "\r\n"
+    logger.log(response, logger.INFO)
     return
 
 class StopAllTrigger(webapp2.RequestHandler):
@@ -426,13 +489,17 @@ class StatusPage(webapp2.RequestHandler):
             status_items.append({
                 'instance_name': i,
                 'instance_status': get_status(i),
+                'instance_live': str(get_still_instantance(i)),
+                'instance_created': str(get_last_create_time(i)),
+                'instance_deleted': str(get_last_delete_time(i)),
+                'instance_lived': str(get_last_instance_live_elapsed(i)),
                 'instance_started': str(get_last_started_time(i)),
                 'instance_completed': str(get_last_completed_time(i)),
+                'instance_was_completed': str(get_last_run_completed(i)),
                 'instance_comp_elapsed': str(get_last_run_elapsed(i)),
                 'instance_curr_elapsed': str(get_current_run_elapsed(i)),
                 'instance_was_preempted': str(get_last_run_preempted(i)),
                 'instance_preempted_count': str(get_preemption_count(i)),
-                'instance_live': str(get_still_instantance(i))
                 })
 
         data = {}
@@ -441,7 +508,11 @@ class StatusPage(webapp2.RequestHandler):
         data['status_items'] = status_items
 
         template = jinja_environment.get_template('status.html')
-        self.response.out.write(template.render(data))
+        if localHost:
+            f = open('./test.html', 'w')
+            f.write(template.render(data))
+        else:
+            self.response.out.write(template.render(data))
 
 app = webapp2.WSGIApplication([
     ('/Start/(.*)/(\d+)',           StartTrigger),
