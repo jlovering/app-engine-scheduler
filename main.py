@@ -21,15 +21,6 @@ liveDelete = True
 machineType = 'n1-highcpu-8'
 localHost = False
 
-import logging
-
-# Imports the Google Cloud client library
-import google.cloud.logging
-client = google.cloud.logging.Client()
-# Connects the logger to the root logging handler; by default this captures
-# all logs at INFO level and higher
-client.setup_logging()
-
 simulations = {
     'bayarea-4k' : {
         'TZ' : 'America/Los_Angeles',
@@ -91,6 +82,12 @@ def _cache_current_instances():
                 current_instances[inst['name']] = inst
     instancesCached = True
 
+def _invalidateInstancesCache():
+    global instancesCached
+    global current_instances
+    instancesCached = False
+    current_instances = {}
+
 def _cache_zone_ops():
     global zoneOpsCached
 
@@ -100,7 +97,10 @@ def _cache_zone_ops():
         ops += compute.zoneOperations().list(project=projectID, zone=z).execute()['items']
 
     # filter for just the last day and ops we care about
-    ops_today = filter(lambda t: convert_gcloud_time(t['endTime']) > datetime.datetime.utcnow() - datetime.timedelta(days=daysToScanBack) and t['operationType'] in ops_of_interest, ops)
+    ops_today = filter(lambda t:
+        t['status'] == 'DONE' and
+        convert_gcloud_time(t['endTime']) > datetime.datetime.utcnow() - datetime.timedelta(days=daysToScanBack) and
+        t['operationType'] in ops_of_interest, ops)
 
     # sort by completions time
     ops_today_r_sorted = sorted(ops_today, key=lambda t: convert_gcloud_time(t['endTime']), reverse=True)
@@ -133,6 +133,12 @@ def _cache_zone_ops():
             recent_instances[name]['lastDelete'].append(convert_gcloud_time(o['endTime']))
 
     zoneOpsCached = True
+
+def _invalidateZoneOpsCache():
+    global zoneOpsCached
+    global recent_instances
+    zoneOpsCached = False
+    recent_instances = {}
 
 def _get_last_time(instance, prop):
     if not zoneOpsCached:
@@ -234,30 +240,42 @@ def get_still_instantance(instance):
 
 def start_instance(zone, instance):
     """starts instance"""
-    return compute.instances().start(
+    response = compute.instances().start(
         project=projectID,
         zone=zone,
         instance=instance).execute()
+    _invalidateInstancesCache()
+    _invalidateZoneOpsCache()
+    return response
 
 def restart_instance(zone, instance):
     """restarts instance"""
-    return compute.instances().reset(
+    response = compute.instances().reset(
         project=projectID,
         zone=zone,
         instance=instance).execute()
+    _invalidateInstancesCache()
+    _invalidateZoneOpsCache()
+    return response
 
 def stop_instance(zone, instance):
     """stop instance"""
-    return compute.instances().stop(
+    response = compute.instances().stop(
         project=projectID,
         zone=zone,
         instance=instance).execute()
+    _invalidateInstancesCache()
+    _invalidateZoneOpsCache()
+    return response
 
 def delete_instance(zone, instance):
-    return compute.instances().delete(
+    response = compute.instances().delete(
         project=projectID,
         zone=zone,
         instance=instance).execute()
+    _invalidateInstancesCache()
+    _invalidateZoneOpsCache()
+    return response
 
 def find_zone():
     if not instancesCached:
@@ -360,10 +378,14 @@ def create_instance(zone, group, index, name):
             ],
         }
     }
-    return compute.instances().insert(
+    response = compute.instances().insert(
         project=projectID,
         zone=zone,
         body=config).execute()
+
+    _invalidateInstancesCache()
+    _invalidateZoneOpsCache()
+    return response
 
 def get_status(instance):
     if not get_still_instantance(instance):
@@ -375,8 +397,8 @@ def get_status(instance):
         instance=instance).execute()['status']
 
 def Monitor():
-    if not instancesCached:
-        _cache_current_instances()
+    _cache_current_instances()
+    _cache_zone_ops()
     response = ""
     for i in current_instances:
         if get_last_run_preempted(current_instances[i]['name']):
@@ -396,72 +418,82 @@ def Monitor():
             continue
     if len(response) == 0:
         response += get_time_string() + "Nothing to report"
-    logging.info(response)
-    return
+    return response
 
 def StartOrCreateInstance(group, index):
-    if not instancesCached:
-        _cache_current_instances()
+    _cache_current_instances()
     name = "rasp-blipmap-" + group + "-p-" + index
     if name in current_instances:
         start_instance(current_instances[name]['zone'], name)
         response = get_time_string() + "Instance: " + name + " was started" + "\r\n"
-        logging.info(response)
-        return
+        return response
     else:
         zone = find_zone()
         if zone:
             create_instance(zone, group, index, name)
             response = get_time_string() + "Instance: " + name + " was created & started" + "\r\n"
-            logging.info(response)
+            return response
         else:
             response = get_time_string() + "Instance: " + name + " could not be created, no zone available" + "\r\n"
-            logging.info(response)
-    return
+            return response
 
 def StopInstance(group, index):
-    if not instancesCached:
-        _cache_current_instances()
+    _cache_current_instances()
     name = "rasp-blipmap-" + group + "-p-" + index
     response = ""
     if name in current_instances:
         stop_instance(current_instances[name]['zone'], name)
         response += get_time_string() + "Instance: " + name + " was stoped" + "\r\n"
-    logging.info(response)
-    return
+    return response
 
 
 def StopAll():
-    if not instancesCached:
-        _cache_current_instances()
+    _cache_current_instances()
     response = ""
-    for name in current_instances:
+    iter_over = current_instances
+    for name in iter_over:
         stop_instance(current_instances[name]['zone'], current_instances[name]['name'])
         response += get_time_string() + "Instance: " + name + " was stopped" + "\r\n"
-    logging.info(response)
-    return
+    return response
 
 class StopAllTrigger(webapp2.RequestHandler):
     def get(self):
-        self.response.write(StopAll())
+        response = StopAll()
+        if localHost:
+            print response
+        else:
+            self.response.out.write(response)
 
 class MonitorTrigger(webapp2.RequestHandler):
     def get(self):
-        self.response.write(Monitor())
+        response = Monitor()
+        if localHost:
+            print response
+        else:
+            self.response.out.write(response)
 
 class StartTrigger(webapp2.RequestHandler):
     def get(self, group, index):
-        self.response.write(StartOrCreateInstance(group, index))
+        response = StartOrCreateInstance(group, index)
+        if localHost:
+            print response
+        else:
+            self.response.out.write(response)
 
 class StopTrigger(webapp2.RequestHandler):
     def get(self, group, index):
-        self.response.write(StopInstance(group, index))
+        response = StopInstance(group, index)
+        if localHost:
+            print response
+        else:
+            self.response.out.write(response)
 
 class StatusPage(webapp2.RequestHandler):
     def get(self):
-        if not zoneOpsCached:
-            _cache_zone_ops()
         status_items = [];
+
+        _cache_zone_ops()
+
         for i in sorted(recent_instances):
             status_items.append({
                 'instance_name': i,

@@ -32,7 +32,7 @@ cron:
 - description: Monitor Forcasts
   url: /Monitor
   timezone: UTC
-  schedule: every 5 minutes from 14:00 to 16:00
+  schedule: every 15 minutes from 14:00 to 16:00
 
 - description: Start Sask 4k Forcast + 0
   url: /Start/sask-4k/0
@@ -67,4 +67,4 @@ cron:
 - description: Monitor Forcasts
   url: /Monitor
   timezone: UTC
-  schedule: every 5 minutes from 8:00 to 10:30
+  schedule: every 15 minutes from 8:00 to 10:30
