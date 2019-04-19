@@ -399,22 +399,25 @@ def get_status(instance):
 def Monitor():
     _cache_current_instances()
     _cache_zone_ops()
+    iter_over = current_instances
     response = ""
-    for i in current_instances:
-        if get_last_run_preempted(current_instances[i]['name']):
-            start_instance(current_instances[i]['zone'], current_instances[i]['name'])
-            response += get_time_string() + "Instance: " + current_instances[i]['name'] + " was preempted, restarting" + "\r\n"
+    for i in iter_over:
+        name = current_instances[i]['name']
+        zone = current_instances[i]['zone']
+        if get_last_run_preempted(name):
+            start_instance(zone, name)
+            response += get_time_string() + "Instance: " + name + " was preempted, restarting" + "\r\n"
             continue
-        if get_current_run_elapsed(current_instances[i]['name']) > current_instances[i]['max_expected_run']:
-            restart_instance(current_instances[i]['zone'], current_instances[i]['name'])
-            response += get_time_string() + "Instance: " + current_instances[i]['name'] + " exceeded max run, restarting" + "\r\n"
+        if get_current_run_elapsed(name) > current_instances[i]['max_expected_run']:
+            restart_instance(zone, name)
+            response += get_time_string() + "Instance: " + name + " exceeded max run, restarting" + "\r\n"
             continue
-        if get_last_run_completed(current_instances[i]['name']):
+        if get_last_run_completed(name):
             if liveDelete:
-                delete_instance(current_instances[i]['zone'], current_instances[i]['name'])
-                response += get_time_string() + "Instance: " + current_instances[i]['name'] + " was deleted" + "\r\n"
+                delete_instance(zone, name)
+                response += get_time_string() + "Instance: " + name + " was deleted" + "\r\n"
             else:
-                response += get_time_string() + "Instance: " + current_instances[i]['name'] + " eligible for delete (not exectuted)" + "\r\n"
+                response += get_time_string() + "Instance: " + name + " eligible for delete (not exectuted)" + "\r\n"
             continue
     if len(response) == 0:
         response += get_time_string() + "Nothing to report"
